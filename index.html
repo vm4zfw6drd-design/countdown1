@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能下班与假期倒计时</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .container {
+            background: #ffffff;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+        h2 { margin-bottom: 30px; color: #333; font-size: 24px; }
+        
+        /* 通用卡片样式 */
+        .schedule-card {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 15px;
+            border-left: 5px solid #4caf50;
+            text-align: left;
+        }
+        .schedule-card:nth-child(3) { border-left-color: #2196f3; }
+        
+        /* 节假日专属卡片样式 */
+        .holiday-card {
+            background: linear-gradient(135deg, #fff5f5, #ffecec);
+            border-left: 5px solid #e62a2a;
+        }
+        .holiday-title { color: #e62a2a; font-size: 16px; margin-bottom: 10px; }
+        .holiday-item { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            padding: 8px 0; 
+            border-bottom: 1px dashed #ffe0e0; 
+        }
+        .holiday-item:last-child { border-bottom: none; }
+        .holiday-name { font-weight: bold; color: #c0392b; }
+        .holiday-countdown { font-family: 'Courier New', monospace; color: #e62a2a; font-weight: bold; }
+        
+        .schedule-title { font-size: 14px; color: #666; margin-bottom: 8px; font-weight: bold;}
+        .schedule-time { font-size: 12px; color: #999; margin-bottom: 15px; }
+        
+        .countdown-text { 
+            font-size: 24px; 
+            font-weight: bold; 
+            color: #333; 
+            text-align: center;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        
+        /* 状态颜色区分 */
+        .status-working { color: #4caf50; }
+        .status-waiting { color: #ff9800; }
+        .status-off { color: #9e9e9e; }
+        .status-holiday { color: #e62a2a; }
+        
+        .current-time { margin-top: 25px; font-size: 14px; color: #aaa; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>⏱️ 智能倒计时面板</h2>
+    
+    <!-- 节假日倒计时 -->
+    <div class="schedule-card holiday-card">
+        <div class="holiday-title" id="holidayTitle">🎉 未来30天假期扫描中...</div>
+        <div id="holidayList"></div>
+    </div>
+
+    <!-- 第一套作息：恒杰 -->
+    <div class="schedule-card">
+        <div class="schedule-title">恒杰</div>
+        <div class="schedule-time">上午 08:00-12:00 | 下午 13:30-17:30</div>
+        <div id="schedule1" class="countdown-text">计算中...</div>
+    </div>
+
+    <!-- 第二套作息：江 -->
+    <div class="schedule-card">
+        <div class="schedule-title">江</div>
+        <div class="schedule-time">上午 08:30-12:00 | 下午 13:30-18:00</div>
+        <div id="schedule2" class="countdown-text">计算中...</div>
+    </div>
+
+    <div class="current-time" id="currentTime"></div>
+</div>
+
+<script>
+    // 1. 定义两套日常作息时间
+    const schedules = [
+        {
+            id: 'schedule1',
+            morningStart: { h: 8, m: 0 }, morningEnd: { h: 12, m: 0 },
+            afternoonStart: { h: 13, m: 30 }, afternoonEnd: { h: 17, m: 30 }
+        },
+        {
+            id: 'schedule2',
+            morningStart: { h: 8, m: 30 }, morningEnd: { h: 12, m: 0 },
+            afternoonStart: { h: 13, m: 30 }, afternoonEnd: { h: 18, m: 0 }
+        }
+    ];
+
+    // 2. 内置法定节假日安排（包含2026年剩余及2027年部分假期）
+    const holidays = [
+        { name: '中秋节', start: new Date(2026, 8, 25, 0, 0), end: new Date(2026, 8, 27, 23, 59) },
+        { name: '国庆节', start: new Date(2026, 9, 1, 0, 0), end: new Date(2026, 9, 7, 23, 59) },
+        { name: '元旦', start: new Date(2027, 0, 1, 0, 0), end: new Date(2027, 0, 3, 23, 59) },
+        { name: '春节', start: new Date(2027, 1, 6, 0, 0), end: new Date(2027, 1, 12, 23, 59) }
+    ];
+
+    // 工具函数
+    function toSeconds(timeObj) { return (timeObj.h * 60 + timeObj.m) * 60; }
+    function getCurrentSeconds() {
+        const now = new Date();
+        return (now.getHours() * 60 + now.getMinutes()) * 60 + now.getSeconds();
+    }
+    function formatTime(totalSeconds) {
+        if (totalSeconds <= 0) return "00分00秒";
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(minutes).padStart(2, '0')}分${String(seconds).padStart(2, '0')}秒`;
+    }
+    function formatHolidayTime(totalSeconds) {
+        if (totalSeconds <= 0) return "已开始！";
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        return `${String(hours).padStart(2, '0')}时${String(minutes).padStart(2, '0')}分`;
+    }
+
+    // 核心计算逻辑
+    function updateCountdown() {
+        const nowSeconds = getCurrentSeconds();
+        const now = new Date();
+        document.getElementById('currentTime').innerText = `当前时间：${now.toLocaleTimeString('zh-CN', { hour12: false })}`;
+
+        // === 节假日智能判断逻辑 ===
+        const titleEl = document.getElementById('holidayTitle');
+        const listEl = document.getElementById('holidayList');
+        
+        // 计算30天后的时间点
+        const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        
+        // 筛选未来30天内的所有假期
+        const nearHolidays = holidays.filter(h => now < h.start && h.start <= thirtyDaysLater);
+        // 筛选30天外的最近一个假期
+        const nextHoliday = holidays.find(h => now < h.start && h.start > thirtyDaysLater);
+
+        let html = '';
+        
+        if (nearHolidays.length > 0) {
+            titleEl.innerText = `🎉 未来30天假期 (${nearHolidays.length}个)`;
+            nearHolidays.forEach(h => {
+                const diffMs = h.start - now;
+                const countdown = formatHolidayTime(Math.floor(diffMs / 1000));
+                html += `
+                    <div class="holiday-item">
+                        <span class="holiday-name">${h.name}</span>
+                        <span class="holiday-countdown">${countdown}</span>
+                    </div>
+                `;
+            });
+        } else if (nextHoliday) {
+            titleEl.innerText = `🎉 距离下一个假期`;
+            const daysDiff = Math.ceil((nextHoliday.start - now) / (1000 * 60 * 60 * 24));
+            html = `
+                <div class="holiday-item">
+                    <span class="holiday-name">${nextHoliday.name}</span>
+                    <span class="holiday-countdown">${daysDiff}天</span>
+                </div>
+            `;
+        } else {
+            titleEl.innerText = "🎉 暂无更多假期";
+            html = `<div style="padding:10px; color:#999;">今年假期已休完，期待明年！</div>`;
+        }
+        
+        listEl.innerHTML = html;
+
+        // === 日常下班倒计时逻辑 ===
+        schedules.forEach(schedule => {
+            const el = document.getElementById(schedule.id);
+            const mStart = toSeconds(schedule.morningStart);
+            const mEnd = toSeconds(schedule.morningEnd);
+            const aStart = toSeconds(schedule.afternoonStart);
+            const aEnd = toSeconds(schedule.afternoonEnd);
+            const pmTotal = aEnd - aStart; 
+
+            let message = '', statusClass = '';
+
+            if (nowSeconds < mStart) {
+                message = `☕ 等待上班`; statusClass = 'status-waiting';
+            } else if (nowSeconds >= mStart && nowSeconds < mEnd) {
+                const amRemaining = mEnd - nowSeconds;
+                message = `💼 距离下班还有 ${formatTime(amRemaining + pmTotal)}`; statusClass = 'status-working';
+            } else if (nowSeconds >= mEnd && nowSeconds < aStart) {
+                message = `🍱 午休中，距离下班还有 ${formatTime(pmTotal)}`; statusClass = 'status-waiting';
+            } else if (nowSeconds >= aStart && nowSeconds < aEnd) {
+                const pmRemaining = aEnd - nowSeconds;
+                message = `💼 距离下班还有 ${formatTime(pmRemaining)}`; statusClass = 'status-working';
+            } else {
+                message = `🎉 今日工作已结束，好好休息！`; statusClass = 'status-off';
+            }
+
+            el.innerText = message;
+            el.className = 'countdown-text ' + statusClass;
+        });
+    }
+
+    // 初始化并每秒更新
+    updateCountdown();
+    setInterval(updateCountdown, 1000);
+</script>
+
+</body>
+</html>
